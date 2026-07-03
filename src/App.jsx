@@ -557,7 +557,9 @@ export default function App() {
     }, 4000);
   };
 
-  // ===== AUTH HANDLERS (OTP hidden – only sent by email) =====
+  // ===== AUTH HANDLERS =====
+  // The OTP is sent via Resend by the backend. The frontend only displays a success message.
+  // If the backend is unreachable, we fall back to a demo mode where 123456 works as the OTP.
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -583,6 +585,7 @@ export default function App() {
 
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
+        // Demo mode – simulate registration
         console.warn('API not available – using mock registration');
         showToast('Registration complete! (Demo mode)', 'success');
         setAuthSuccess('Registration successful. Switching to Sign In...');
@@ -646,6 +649,7 @@ export default function App() {
 
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
+        // Demo mode – simulate OTP sent via Resend
         console.warn('API not available – using mock login');
         setVerificationType('login');
         setOtpSent(true);
@@ -653,6 +657,7 @@ export default function App() {
         setOtpDigits(Array(6).fill(''));
         const mockOtp = '123456';
         setDebugOtp(mockOtp);
+        // The user sees a success message – the OTP is NOT displayed.
         showToast(`Verification code sent to ${authEmail}`, 'success');
         setLoading(false);
         return;
@@ -668,15 +673,18 @@ export default function App() {
         setOtpSent(true);
         setOtpTimer(59);
         setOtpDigits(Array(6).fill(''));
+        // Store debug OTP internally if provided (for testing), but never display it.
         if (data.debug_otp) {
           setDebugOtp(data.debug_otp);
         } else {
           setDebugOtp('');
         }
+        // The Resend API sends the email – we just inform the user.
         showToast(`Verification code sent to ${authEmail}`, 'success');
       }
     } catch (err) {
       if (err.message.includes('json') || err.message.includes('fetch')) {
+        // Fallback to demo mode
         setVerificationType('login');
         setOtpSent(true);
         setOtpTimer(59);
@@ -721,7 +729,7 @@ export default function App() {
             throw new Error(data.error || 'Verification failed');
           }
         } catch (err) {
-          // Fallback: accept debug OTP (123456) or any 6-digit code
+          // Fallback: accept debug OTP (123456) or any 6-digit code for demo
           if (otp === '123456' || otp === debugOtp) {
             const mockUser = {
               id: 'mock-user',
@@ -735,7 +743,7 @@ export default function App() {
             setLoading(false);
             return;
           } else {
-            setAuthError('Invalid OTP. Please check your email.');
+            setAuthError('Invalid OTP. Please check your email for the verification code.');
             setLoading(false);
             return;
           }
@@ -1382,7 +1390,7 @@ export default function App() {
     });
   };
 
-  // ----- Gated Login View (no debug banner) -----
+  // ----- Gated Login View (no debug banner, OTP hidden) -----
   if (!currentUser) {
     return (
       <div style={{ display: 'flex', minHeight: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #F0F2F5 0%, #E8EDF2 50%, #F5E6E8 100%)', padding: '20px', position: 'relative', overflow: 'hidden' }}>
@@ -1477,6 +1485,7 @@ export default function App() {
               )}
             </>
           ) : (
+            // OTP verification screen – no OTP displayed
             <form onSubmit={handleVerifyOtp} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div style={{ textAlign: 'center' }}>
                 <h3 style={{ color: '#1E293B', fontSize: '18px', fontWeight: 'bold' }}>Two-Factor Security Verification</h3>
