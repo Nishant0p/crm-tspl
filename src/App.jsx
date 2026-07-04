@@ -722,7 +722,7 @@ export default function App() {
 
     try {
       let response, data;
-if (verificationType === 'login' || verificationType === 'signup') {
+      if (verificationType === 'login' || verificationType === 'signup') {
         try {
           response = await fetch(`${API_BASE}/api/auth/verify-otp`, {
             method: 'POST',
@@ -802,52 +802,6 @@ if (verificationType === 'login' || verificationType === 'signup') {
         } else {
           showToast(`Signed in as ${data.user.name}`, 'success');
         }
-      }
-        }
-      } else {
-        // Reset password flow – fallback
-        try {
-          response = await fetch(`${API_BASE}/api/auth/reset-password`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: authEmail, otp, newPassword: authPassword })
-          });
-          const contentType = response.headers.get('content-type');
-          if (!contentType || !contentType.includes('application/json')) {
-            throw new Error('Not JSON');
-          }
-          data = await response.json();
-          if (!response.ok) {
-            throw new Error(data.error || 'Password reset failed');
-          }
-        } catch (err) {
-          if (otp === '123456' || otp === debugOtp) {
-            showToast('Password has been successfully updated. (Demo)', 'success');
-            setAuthSuccess('Password reset confirmed. You can now Sign In.');
-            setTimeout(() => {
-              setAuthMode('signin');
-              setOtpSent(false);
-              setAuthError('');
-              setAuthSuccess('');
-            }, 2000);
-            setLoading(false);
-            return;
-          } else {
-            setAuthError('Invalid OTP. Please check your email.');
-            setLoading(false);
-            return;
-          }
-        }
-      }
-
-      // If we got here, the API succeeded
-      if (verificationType === 'login') {
-        localStorage.setItem("tspl_current_user", JSON.stringify(data.user));
-        setCurrentUser(data.user);
-<h3 style={{ color: '#1E293B', fontSize: '18px', fontWeight: 'bold' }}>{verificationType === 'signup' ? 'Verify Your Email' : 'Two-Factor Security Verification'}</h3>
-                <p style={{ fontSize: '12px', color: '#64748B', marginTop: '6px' }}>
-                  {verificationType === 'signup' ? "We've sent a 6-digit verification code to" : "We've sent a 6-digit authentication code to"} <strong style={{ color: '#1E293B' }}>{authEmail}</strong>. Please check your inbox.
-                </p>
       } else {
         showToast('Password has been successfully updated.', 'success');
         setAuthSuccess('Password reset confirmed. You can now Sign In.');
