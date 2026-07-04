@@ -90,7 +90,7 @@ async function sendWelcomeEmail(email, name) {
   `
   const resendConfigured = !!process.env.RESEND_API_KEY
   if (resendConfigured) {
-    return await sendWelcomeEmail(email, name)
+    return await sendMailViaResend(email, 'Welcome to TSPL Platform!', html)
   }
   console.log(`\n======================================================`);
   console.log(`[MOCK Welcome Email]`);
@@ -104,11 +104,14 @@ async function sendWelcomeEmail(email, name) {
 // Mailer: Send OTP Verification Code Email
 async function sendOTPEmail(email, name, otp, type) {
   const isLogin = type === 'login'
-  const subject = isLogin ? 'TSPL Portal - Secure Login OTP' : 'TSPL Portal - Password Reset OTP'
-  const title = isLogin ? 'Secure Login Verification' : 'Password Reset Authorization'
-  const description = isLogin 
+  const isSignup = type === 'signup'
+  const subject = isSignup ? 'TSPL Portal - Email Verification OTP' : (isLogin ? 'TSPL Portal - Secure Login OTP' : 'TSPL Portal - Password Reset OTP')
+  const title = isSignup ? 'Email Verification' : (isLogin ? 'Secure Login Verification' : 'Password Reset Authorization')
+  const description = isSignup
+    ? 'Please input the following code to verify your email address and activate your TSPL account.'
+    : (isLogin 
     ? 'Please input the following code in your verification panel to complete your login session.'
-    : 'We received a request to change your TSPL account password. Enter this code to verify it is you.'
+    : 'We received a request to change your TSPL account password. Enter this code to verify it is you.')
 
   const html = `
     <div style="background-color: #F8F9FA; padding: 40px 20px; font-family: 'Inter', Arial, sans-serif;">
@@ -130,7 +133,7 @@ async function sendOTPEmail(email, name, otp, type) {
           </span>
         </div>
         <p style="color: #5F5F5F; font-size: 13px; margin-bottom: 24px;">
-          This security verification code will expire in <span style="color: #F81927; font-weight: 600;">${isLogin ? '5' : '10'} minutes</span>.
+          This security verification code will expire in <span style="color: #F81927; font-weight: 600;">${isSignup ? '10' : (isLogin ? '5' : '10')} minutes</span>.
         </p>
         <div style="border-top: 1px solid #E4E4E4; margin-bottom: 20px;"></div>
         <p style="color: #8A8A8A; font-size: 11px; margin: 0; line-height: 1.4;">
@@ -250,10 +253,25 @@ function apiPlugin() {
                 [email.toLowerCase().trim(), passHash, name.trim(), userRole]
               )
               const user = result.rows[0]
-              await sendWelcomeEmail(user.email, user.name)
+
+              // Generate and send signup verification OTP
+              const otp = Math.floor(100000 + Math.random() * 900000).toString()
+              const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
+
+              await pool.query(
+                'INSERT INTO otps (email, otp_code, expires_at) VALUES ($1, $2, $3) ON CONFLICT (email) DO UPDATE SET otp_code = EXCLUDED.otp_code, expires_at = EXCLUDED.expires_at',
+                [email.toLowerCase().trim(), otp, expiresAt]
+              )
+
+              await sendOTPEmail(email.toLowerCase().trim(), name.trim(), otp, 'signup')
 
               res.statusCode = 201
-              res.end(JSON.stringify({ message: 'User registered successfully', user }))
+              res.end(JSON.stringify({
+                message: 'Account created! A verification code has been sent to your email.',
+                otp_required: true,
+                email: email.toLowerCase().trim(),
+                user
+              }))
               return
             }
 
@@ -487,11 +505,5 @@ function apiPlugin() {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), apiPlugin()],
-  define: {
-    'process.env.DATABASE_URL': JSON.stringify(process.env.DATABASE_URL),
-    'process.env.RESEND_API_KEY': JSON.stringify(process.env.RESEND_API_KEY),
-    'process.env.SUPER_ADMIN_EMAIL': JSON.stringify(process.env.SUPER_ADMIN_EMAIL),
-    'process.env.SUPER_ADMIN_PASSWORD': JSON.stringify(process.env.SUPER_ADMIN_PASSWORD)
-  }
+  plugins: [react(), apiPlugin()]
 })

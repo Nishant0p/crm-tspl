@@ -584,13 +584,22 @@ export default function App() {
         throw new Error(data.error || 'Registration failed');
       }
 
-      showToast('Registration complete! Welcome email sent.', 'success');
-      setAuthSuccess('Registration successful. Switching to Sign In...');
-      setTimeout(() => {
-        setAuthMode('signin');
-        setAuthError('');
-        setAuthSuccess('');
-      }, 1500);
+      if (data.otp_required) {
+        setVerificationType('signup');
+        setOtpSent(true);
+        setOtpTimer(59);
+        setOtpDigits(Array(6).fill(''));
+        setDebugOtp('');
+        showToast('Account created! Verify your email with the OTP code sent.', 'success');
+      } else {
+        showToast('Registration complete!', 'success');
+        setAuthSuccess('Registration successful. Switching to Sign In...');
+        setTimeout(() => {
+          setAuthMode('signin');
+          setAuthError('');
+          setAuthSuccess('');
+        }, 1500);
+      }
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -655,7 +664,7 @@ export default function App() {
 
     try {
       let response, data;
-      if (verificationType === 'login') {
+      if (verificationType === 'login' || verificationType === 'signup') {
         response = await fetch(`${API_BASE}/api/auth/verify-otp`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -668,7 +677,11 @@ export default function App() {
 
         localStorage.setItem("tspl_current_user", JSON.stringify(data.user));
         setCurrentUser(data.user);
-        showToast(`Clerk Auth successful! Signed in as ${data.user.name}`, 'success');
+        if (verificationType === 'signup') {
+          showToast(`Email verified! Welcome aboard, ${data.user.name}!`, 'success');
+        } else {
+          showToast(`Clerk Auth successful! Signed in as ${data.user.name}`, 'success');
+        }
       } else {
         response = await fetch(`${API_BASE}/api/auth/reset-password`, {
           method: 'POST',
@@ -1359,8 +1372,8 @@ export default function App() {
           ) : (
             <form onSubmit={handleVerifyOtp} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div style={{ textAlign: 'center' }}>
-                <h3 style={{ color: '#1E293B', fontSize: '18px', fontWeight: 'bold' }}>Two-Factor Security Verification</h3>
-                <p style={{ fontSize: '12px', color: '#64748B', marginTop: '6px' }}>We've transmitted a 6-digit authentication token code to <strong style={{ color: '#1E293B' }}>{authEmail}</strong>.</p>
+                <h3 style={{ color: '#1E293B', fontSize: '18px', fontWeight: 'bold' }}>{verificationType === 'signup' ? 'Verify Your Email' : 'Two-Factor Security Verification'}</h3>
+                <p style={{ fontSize: '12px', color: '#64748B', marginTop: '6px' }}>{verificationType === 'signup' ? 'We\'ve sent a 6-digit verification code to' : 'We\'ve transmitted a 6-digit authentication token code to'} <strong style={{ color: '#1E293B' }}>{authEmail}</strong>.</p>
               </div>
               <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', margin: '16px 0' }}>
                 {otpDigits.map((char, index) => (
@@ -1372,7 +1385,7 @@ export default function App() {
                 <span style={{ color: '#D97706', fontWeight: 'bold' }}>{otpTimer}s remaining</span>
               </div>
               <button type="submit" className="btn-primary" style={{ width: '100%', padding: '12px' }} disabled={loading}>
-                {loading ? 'Confirming authorization...' : 'Verify & Continue'}
+                {loading ? 'Confirming authorization...' : (verificationType === 'signup' ? 'Verify Email & Sign In' : 'Verify & Continue')}
               </button>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
                 <span onClick={() => { setOtpSent(false); setAuthError(''); }} style={{ fontSize: '12px', color: '#64748B', cursor: 'pointer' }}>Edit Email Address</span>
