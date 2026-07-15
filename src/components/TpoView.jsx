@@ -12,6 +12,34 @@ const ArrowSVG = () => (
   </svg>
 );
 
+const TpoVideoPreview = ({ stream }) => {
+  const videoRef = React.useRef(null);
+  React.useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+  return (
+    <video 
+      id="tpo-video-stream"
+      ref={videoRef} 
+      autoPlay 
+      playsInline 
+      muted 
+      style={{ 
+        width: '100%', 
+        height: '220px', 
+        borderRadius: '8px', 
+        objectFit: 'cover', 
+        background: '#000',
+        marginBottom: '16px',
+        border: '1px solid var(--glass-border)',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+      }} 
+    />
+  );
+};
+
 export default function TpoView({
   tpoSubView,
   setTpoSubView,
@@ -30,7 +58,12 @@ export default function TpoView({
   gpsSuccess,
   gpsData,
   gpsLoading,
-  handleGPSCheckin
+  handleGPSCheckin,
+  gpsImage,
+  cameraActive,
+  cameraStream,
+  handleCaptureGPSSnapshot,
+  handleClearGPS
 }) {
   const filteredCandidates = candidates.filter(c => {
     const matchesState = !tpoStateFilter || c.state === tpoStateFilter;
@@ -43,13 +76,54 @@ export default function TpoView({
       padding: '24px', 
       background: 'rgba(255,255,255,0.35)', 
       border: '1px solid var(--glass-border)',
-      width: fullWidth ? '100%' : 'auto'
+      width: fullWidth ? '100%' : 'auto',
+      backdropFilter: 'blur(10px)'
     }}>
-      <h3 style={{ fontSize: '16px', color: 'var(--text-main)', marginBottom: '16px' }}>📍 TPO GPS Telemetry</h3>
+      <h3 style={{ fontSize: '16px', color: 'var(--text-main)', marginBottom: '16px', fontWeight: 'bold' }}>📍 TPO GPS Telemetry</h3>
+      
       <div style={{ fontSize: '13px', color: gpsSuccess ? 'var(--neon-green)' : 'var(--text-muted)', marginBottom: '16px', fontWeight: '600' }}>
-        {gpsSuccess ? '📍 Location locked!' : 'No location captured yet.'}
+        {gpsSuccess ? '📍 Location & Presence Locked!' : cameraActive ? '🎥 Adjust camera framing...' : 'No telemetry captured yet.'}
       </div>
-      {gpsSuccess && gpsData && (
+
+      {/* 1. Camera Preview Stream */}
+      {cameraActive && cameraStream && (
+        <TpoVideoPreview stream={cameraStream} />
+      )}
+
+      {/* 2. Captured Image Snapshot */}
+      {gpsImage && (
+        <div style={{ position: 'relative', marginBottom: '16px' }}>
+          <img 
+            src={gpsImage} 
+            alt="TPO Presence" 
+            style={{ 
+              width: '100%', 
+              height: '220px', 
+              borderRadius: '8px', 
+              objectFit: 'cover', 
+              border: '1px solid var(--glass-border)',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+            }} 
+          />
+          <div style={{ 
+            position: 'absolute', 
+            bottom: '8px', 
+            right: '8px', 
+            background: 'var(--neon-green)', 
+            color: '#000', 
+            padding: '4px 8px', 
+            borderRadius: '4px', 
+            fontSize: '9px', 
+            fontWeight: 'bold',
+            letterSpacing: '0.5px'
+          }}>
+            ✓ CAPTURED
+          </div>
+        </div>
+      )}
+
+      {/* 3. GPS Data Coordinates Display */}
+      {gpsData && (
         <div style={{ background: 'var(--bg-secondary)', padding: '16px', borderRadius: '8px', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '6px', border: '1px solid var(--glass-border)', marginBottom: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ color: 'var(--text-dark)' }}>Latitude:</span>
@@ -69,15 +143,46 @@ export default function TpoView({
           </div>
         </div>
       )}
-      <button 
-        className="btn-primary-arrow" 
-        style={{ width: '100%', justifyContent: 'center' }}
-        onClick={handleGPSCheckin}
-        disabled={gpsLoading}
-      >
-        {gpsLoading ? 'LOCATING...' : gpsSuccess ? 'REFRESH GPS' : 'CAPTURE GPS LOCATION'}
-        <span className="circle"><ArrowSVG /></span>
-      </button>
+
+      {/* 4. Telemetry Control Buttons */}
+      {cameraActive ? (
+        <button 
+          className="btn-primary-arrow" 
+          style={{ width: '100%', justifyContent: 'center', background: 'var(--neon-green)', color: '#000' }}
+          onClick={() => {
+            const videoEl = document.getElementById('tpo-video-stream');
+            handleCaptureGPSSnapshot(videoEl);
+          }}
+        >
+          📸 SNAP PHOTO & LOCK TELEMETRY
+          <span className="circle" style={{ background: '#000', color: 'var(--neon-green)' }}><ArrowSVG /></span>
+        </button>
+      ) : gpsSuccess ? (
+        <button 
+          className="btn-primary-arrow" 
+          style={{ 
+            width: '100%', 
+            justifyContent: 'center', 
+            background: 'rgba(239, 68, 68, 0.1)', 
+            color: 'var(--accent-red)', 
+            border: '1px solid rgba(239, 68, 68, 0.2)' 
+          }}
+          onClick={handleClearGPS}
+        >
+          🔄 CLEAR & REFRESH TELEMETRY
+          <span className="circle" style={{ background: 'var(--accent-red)' }}><ArrowSVG /></span>
+        </button>
+      ) : (
+        <button 
+          className="btn-primary-arrow" 
+          style={{ width: '100%', justifyContent: 'center' }}
+          onClick={handleGPSCheckin}
+          disabled={gpsLoading}
+        >
+          {gpsLoading ? 'ACQUIRING GPS LOCK...' : 'CAPTURE GPS & CAMERA LOCATION'}
+          <span className="circle"><ArrowSVG /></span>
+        </button>
+      )}
     </div>
   );
 
@@ -127,7 +232,6 @@ export default function TpoView({
           </div>
 
           <div className="glass-panel unified-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <GPSCard />
             <div>
               <div className="portal-controls" style={{ marginBottom: '16px' }}>
                 <h3 style={{ fontSize: '15px', color: 'var(--text-main)' }}>Candidate Linkage Roster</h3>

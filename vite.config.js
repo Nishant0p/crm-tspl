@@ -3,8 +3,9 @@ import react from '@vitejs/plugin-react'
 import dotenv from 'dotenv'
 import pg from 'pg'
 import crypto from 'crypto'
+import nodemailer from 'nodemailer'
 
-dotenv.config()
+dotenv.config({ override: true })
 
 const { Pool } = pg
 
@@ -29,34 +30,38 @@ function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex')
 }
 
-// Mailer: Send Mail via Resend REST API
-async function sendMailViaResend(email, subject, htmlContent) {
-  const resendApiKey = process.env.RESEND_API_KEY
-  if (!resendApiKey) {
+// Mailer: Send Mail via SMTP
+async function sendMailViaSMTP(email, subject, htmlContent) {
+  const smtpUser = process.env.SMTP_USER
+  const smtpPass = process.env.SMTP_PASS
+  if (!smtpUser || !smtpPass) {
     return false
   }
+  const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com'
+  const smtpPort = parseInt(process.env.SMTP_PORT || '465', 10)
+  const smtpSecure = process.env.SMTP_SECURE !== 'false' // Default to true
+  const smtpFrom = process.env.SMTP_FROM || `"TSPL Platform" <${smtpUser}>`
+
   try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${resendApiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from: 'TSPL Platform <noreply@tspl.nishant.codes>',
-        to: [email],
-        subject: subject,
-        html: htmlContent
-      })
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass
+      }
     })
-    const data = await response.json()
-    if (!response.ok) {
-      throw new Error(data.message || 'Resend HTTP delivery failure')
-    }
-    console.log(`◇ Email successfully dispatched via Resend API to ${email} (ID: ${data.id})`)
+    await transporter.sendMail({
+      from: smtpFrom,
+      to: email,
+      subject: subject,
+      html: htmlContent
+    })
+    console.log(`◇ Email successfully dispatched via SMTP (${smtpHost}) to ${email}`)
     return true
   } catch (err) {
-    console.error('Resend API delivery failed:', err.message)
+    console.error('SMTP delivery failed:', err.message)
     return false
   }
 }
@@ -64,33 +69,38 @@ async function sendMailViaResend(email, subject, htmlContent) {
 // Mailer: Send Welcome HTML Email
 async function sendWelcomeEmail(email, name) {
   const html = `
-    <div style="background-color: #F8F9FA; padding: 40px 20px; font-family: 'Inter', Arial, sans-serif;">
-      <div style="background-color: #FFFFFF; color: #111111; padding: 40px; text-align: center; border: 1px solid #E4E4E4; border-radius: 12px; max-width: 550px; margin: 0 auto; box-shadow: 0 4px 24px rgba(10, 10, 10, 0.06);">
-        <div style="font-size: 28px; font-weight: 800; color: #000000; margin-bottom: 24px; letter-spacing: 1.5px; text-transform: uppercase;">
-          TSPL <span style="color: #F81927;">PLATFORM</span>
+    <div style="background-color: #F0F4F8; padding: 42px 24px; font-family: 'Inter', Arial, sans-serif; min-height: 100%;">
+      <div style="background-color: #FFFFFF; color: #1E3A8A; padding: 40px; border-radius: 12px; max-width: 550px; margin: 0 auto; box-shadow: 0 8px 30px rgba(37,99,235,0.06); border-top: 6px solid #2563EB; border-bottom: 6px solid #F97316;">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT4B85TWhCXk89F7RwuEhn30IIis1HSNpXk7Lrqz-bgVQ&s" alt="TSPL Logo" style="height: 44px; width: auto; vertical-align: middle; border-radius: 4px; margin-right: 10px; display: inline-block;" />
+          <span style="font-size: 24px; font-weight: 800; color: #1E3A8A; letter-spacing: 0.5px; text-transform: uppercase; display: inline-block; vertical-align: middle; font-family: 'Inter', Arial, sans-serif;">
+            TSPL <span style="color: #F97316;">GROUP</span>
+          </span>
         </div>
-        <div style="border-top: 1px solid #E4E4E4; margin-bottom: 24px;"></div>
-        <h2 style="color: #111111; font-size: 22px; margin-top: 0; margin-bottom: 16px; font-weight: 700; letter-spacing: -0.5px;">
+        <div style="border-top: 1px solid #DBEAFE; margin-bottom: 24px;"></div>
+        <h2 style="color: #1E3A8A; font-size: 22px; margin-top: 0; margin-bottom: 16px; font-weight: 700; text-align: center;">
           Welcome Aboard, ${name}!
         </h2>
-        <p style="color: #5F5F5F; font-size: 15px; line-height: 1.6; margin-bottom: 28px; text-align: left;">
-          Hello <strong style="color: #111111;">${name}</strong>,<br>
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin-bottom: 28px; text-align: left;">
+          Hello <strong style="color: #1E3A8A;">${name}</strong>,<br>
           Your enterprise profile has been successfully registered. You now have full access to our Unified Sourcing, Job Placements, and Skill Ecosystem.
         </p>
-        <div style="background-color: #FFFFFF; border: 1px solid #E4E4E4; padding: 12px 24px; border-radius: 6px; display: inline-block; margin-bottom: 28px;">
-          <span style="color: #F81927; font-weight: bold; font-size: 14px; letter-spacing: 0.5px;">Candidate Profile Verified ✓</span>
+        <div style="text-align: center; margin-bottom: 28px;">
+          <div style="background-color: #F97316; padding: 12px 24px; border-radius: 6px; display: inline-block;">
+            <span style="color: #FFFFFF; font-weight: bold; font-size: 14px; letter-spacing: 0.5px;">Candidate Profile Verified ✓</span>
+          </div>
         </div>
-        <div style="border-top: 1px solid #E4E4E4; margin-bottom: 20px;"></div>
-        <p style="color: #8A8A8A; font-size: 11px; margin: 0; line-height: 1.4;">
+        <div style="border-top: 1px solid #DBEAFE; margin-bottom: 20px;"></div>
+        <p style="color: #94A3B8; font-size: 11px; margin: 0; line-height: 1.4; text-align: center;">
           This is an automated notification from TSPL Academic Registry.<br>
           &copy; 2026 TSPL. All internal automation systems apply.
         </p>
       </div>
     </div>
   `
-  const resendConfigured = !!process.env.RESEND_API_KEY
-  if (resendConfigured) {
-    return await sendMailViaResend(email, 'Welcome to TSPL Platform!', html)
+  const smtpConfigured = !!(process.env.SMTP_USER && process.env.SMTP_PASS)
+  if (smtpConfigured) {
+    return await sendMailViaSMTP(email, 'Welcome to TSPL Platform!', html)
   }
   console.log(`\n======================================================`);
   console.log(`[MOCK Welcome Email]`);
@@ -114,29 +124,34 @@ async function sendOTPEmail(email, name, otp, type) {
     : 'We received a request to change your TSPL account password. Enter this code to verify it is you.')
 
   const html = `
-    <div style="background-color: #F8F9FA; padding: 40px 20px; font-family: 'Inter', Arial, sans-serif;">
-      <div style="background-color: #FFFFFF; color: #111111; padding: 40px; text-align: center; border: 1px solid #E4E4E4; border-radius: 12px; max-width: 550px; margin: 0 auto; box-shadow: 0 4px 24px rgba(10, 10, 10, 0.06);">
-        <div style="font-size: 28px; font-weight: 800; color: #000000; margin-bottom: 24px; letter-spacing: 1.5px; text-transform: uppercase;">
-          TSPL <span style="color: #F81927;">PLATFORM</span>
-        </div>
-        <div style="border-top: 1px solid #E4E4E4; margin-bottom: 24px;"></div>
-        <h2 style="color: #111111; font-size: 22px; margin-top: 0; margin-bottom: 16px; font-weight: 700; letter-spacing: -0.5px;">
-          ${title}
-        </h2>
-        <p style="color: #5F5F5F; font-size: 15px; line-height: 1.6; margin-bottom: 28px; text-align: left;">
-          Hello <strong style="color: #111111;">${name}</strong>,<br>
-          ${description}
-        </p>
-        <div style="background-color: #F81927; padding: 16px 40px; border-radius: 8px; display: inline-block; margin-bottom: 28px; box-shadow: 0 4px 12px rgba(248, 25, 39, 0.2);">
-          <span style="font-size: 36px; font-weight: 800; color: #FFFFFF; letter-spacing: 8px; font-family: 'Courier New', monospace;">
-            ${otp}
+    <div style="background-color: #F0F4F8; padding: 42px 24px; font-family: 'Inter', Arial, sans-serif; min-height: 100%;">
+      <div style="background-color: #FFFFFF; color: #1E3A8A; padding: 40px; border-radius: 12px; max-width: 550px; margin: 0 auto; box-shadow: 0 8px 30px rgba(37,99,235,0.06); border-top: 6px solid #2563EB; border-bottom: 6px solid #F97316;">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT4B85TWhCXk89F7RwuEhn30IIis1HSNpXk7Lrqz-bgVQ&s" alt="TSPL Logo" style="height: 44px; width: auto; vertical-align: middle; border-radius: 4px; margin-right: 10px; display: inline-block;" />
+          <span style="font-size: 24px; font-weight: 800; color: #1E3A8A; letter-spacing: 0.5px; text-transform: uppercase; display: inline-block; vertical-align: middle; font-family: 'Inter', Arial, sans-serif;">
+            TSPL <span style="color: #F97316;">GROUP</span>
           </span>
         </div>
-        <p style="color: #5F5F5F; font-size: 13px; margin-bottom: 24px;">
-          This security verification code will expire in <span style="color: #F81927; font-weight: 600;">${isSignup ? '10' : (isLogin ? '5' : '10')} minutes</span>.
+        <div style="border-top: 1px solid #DBEAFE; margin-bottom: 24px;"></div>
+        <h2 style="color: #1E3A8A; font-size: 22px; margin-top: 0; margin-bottom: 16px; font-weight: 700; text-align: center;">
+          ${title}
+        </h2>
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin-bottom: 28px; text-align: left;">
+          Hello <strong style="color: #1E3A8A;">${name}</strong>,<br>
+          ${description}
         </p>
-        <div style="border-top: 1px solid #E4E4E4; margin-bottom: 20px;"></div>
-        <p style="color: #8A8A8A; font-size: 11px; margin: 0; line-height: 1.4;">
+        <div style="text-align: center; margin-bottom: 28px;">
+          <div style="background-color: #F97316; padding: 16px 40px; border-radius: 8px; display: inline-block; box-shadow: 0 4px 12px rgba(249, 115, 22, 0.2);">
+            <span style="font-size: 36px; font-weight: 800; color: #FFFFFF; letter-spacing: 8px; font-family: 'Courier New', monospace;">
+              ${otp}
+            </span>
+          </div>
+        </div>
+        <p style="color: #475569; font-size: 13px; margin-bottom: 24px; text-align: center;">
+          This security verification code will expire in <span style="color: #2563EB; font-weight: 600;">${isSignup ? '10' : (isLogin ? '5' : '10')} minutes</span>.
+        </p>
+        <div style="border-top: 1px solid #DBEAFE; margin-bottom: 20px;"></div>
+        <p style="color: #94A3B8; font-size: 11px; margin: 0; line-height: 1.4; text-align: center;">
           If you did not make this transaction request, please ignore this email securely.<br>
           &copy; 2026 TSPL. All internal automation systems apply.
         </p>
@@ -150,11 +165,11 @@ async function sendOTPEmail(email, name, otp, type) {
   console.log(`OTP Code: ${otp}`);
   console.log(`======================================================\n`);
 
-  const resendConfigured = !!process.env.RESEND_API_KEY
-  if (resendConfigured) {
-    const success = await sendMailViaResend(email, subject, html)
+  const smtpConfigured = !!(process.env.SMTP_USER && process.env.SMTP_PASS)
+  if (smtpConfigured) {
+    const success = await sendMailViaSMTP(email, subject, html)
     if (!success) {
-      console.log(`⚠️ Resend email delivery failed for ${email}. Please copy the OTP from the console log above.`)
+      console.log(`⚠️ SMTP email delivery failed for ${email}. Please copy the OTP from the console log above.`)
     }
   }
 
@@ -484,10 +499,45 @@ function apiPlugin() {
               return
             }
 
-            // Unknown API endpoint
-            res.statusCode = 404
-            res.end(JSON.stringify({ error: 'API Endpoint not found' }))
-            return
+            // Unknown API endpoint - forward to Express backend running on port 5000
+            try {
+              const expressUrl = `http://localhost:5000${req.url}`
+              const method = req.method
+              const headers = { ...req.headers }
+              delete headers.host
+
+              // Read request body if present
+              const rawBody = await new Promise((resolve) => {
+                let chunks = []
+                req.on('data', chunk => chunks.push(chunk))
+                req.on('end', () => resolve(Buffer.concat(chunks)))
+              })
+
+              const fetchOptions = {
+                method,
+                headers,
+              }
+              if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && rawBody.length > 0) {
+                fetchOptions.body = rawBody
+              }
+
+              const backendRes = await fetch(expressUrl, fetchOptions)
+              
+              // Copy headers
+              backendRes.headers.forEach((value, key) => {
+                res.setHeader(key, value)
+              })
+              res.statusCode = backendRes.status
+              
+              const resBuffer = await backendRes.arrayBuffer()
+              res.end(Buffer.from(resBuffer))
+              return
+            } catch (proxyErr) {
+              console.error('Error proxying to backend:', proxyErr.message)
+              res.statusCode = 502
+              res.end(JSON.stringify({ error: 'Failed to connect to backend server on port 5000' }))
+              return
+            }
 
           } catch (error) {
             console.error('API Error in Vite dev server:', error.message)

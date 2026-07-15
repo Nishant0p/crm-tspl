@@ -1,5 +1,6 @@
 import pg from 'pg'
 import crypto from 'crypto'
+import nodemailer from 'nodemailer'
 
 const { Pool } = pg
 
@@ -20,30 +21,38 @@ function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex')
 }
 
-// Mailer: Send Mail via Resend REST API
-async function sendMailViaResend(email, subject, htmlContent) {
-  const resendApiKey = process.env.RESEND_API_KEY
-  if (!resendApiKey) return false
+// Mailer: Send Mail via SMTP
+async function sendMailViaSMTP(email, subject, htmlContent) {
+  const smtpUser = process.env.SMTP_USER
+  const smtpPass = process.env.SMTP_PASS
+  if (!smtpUser || !smtpPass) {
+    return false
+  }
+  const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com'
+  const smtpPort = parseInt(process.env.SMTP_PORT || '465', 10)
+  const smtpSecure = process.env.SMTP_SECURE !== 'false' // Default to true
+  const smtpFrom = process.env.SMTP_FROM || `"TSPL Platform" <${smtpUser}>`
+
   try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${resendApiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from: 'TSPL Platform <noreply@tspl.nishant.codes>',
-        to: [email],
-        subject: subject,
-        html: htmlContent
-      })
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass
+      }
     })
-    const data = await response.json()
-    if (!response.ok) throw new Error(data.message || 'Resend delivery failure')
-    console.log(`◇ Email dispatched to ${email} (ID: ${data.id})`)
+    await transporter.sendMail({
+      from: smtpFrom,
+      to: email,
+      subject: subject,
+      html: htmlContent
+    })
+    console.log(`◇ Email successfully dispatched via SMTP (${smtpHost}) to ${email}`)
     return true
   } catch (err) {
-    console.error('Resend API failed:', err.message)
+    console.error('SMTP delivery failed:', err.message)
     return false
   }
 }
@@ -61,34 +70,41 @@ async function sendOTPEmail(email, name, otp, type) {
       : 'We received a request to change your TSPL account password. Enter this code to verify it is you.')
 
   const html = `
-    <div style="background-color: #F8F9FA; padding: 40px 20px; font-family: 'Inter', Arial, sans-serif;">
-      <div style="background-color: #FFFFFF; color: #111111; padding: 40px; text-align: center; border: 1px solid #E4E4E4; border-radius: 12px; max-width: 550px; margin: 0 auto; box-shadow: 0 4px 24px rgba(10, 10, 10, 0.06);">
-        <div style="font-size: 28px; font-weight: 800; color: #000000; margin-bottom: 24px; letter-spacing: 1.5px; text-transform: uppercase;">
-          TSPL <span style="color: #F81927;">PLATFORM</span>
+    <div style="background-color: #F0F4F8; padding: 42px 24px; font-family: 'Inter', Arial, sans-serif; min-height: 100%;">
+      <div style="background-color: #FFFFFF; color: #1E3A8A; padding: 40px; border-radius: 12px; max-width: 550px; margin: 0 auto; box-shadow: 0 8px 30px rgba(37,99,235,0.06); border-top: 6px solid #2563EB; border-bottom: 6px solid #F97316;">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT4B85TWhCXk89F7RwuEhn30IIis1HSNpXk7Lrqz-bgVQ&s" alt="TSPL Logo" style="height: 44px; width: auto; vertical-align: middle; border-radius: 4px; margin-right: 10px; display: inline-block;" />
+          <span style="font-size: 24px; font-weight: 800; color: #1E3A8A; letter-spacing: 0.5px; text-transform: uppercase; display: inline-block; vertical-align: middle; font-family: 'Inter', Arial, sans-serif;">
+            TSPL <span style="color: #F97316;">GROUP</span>
+          </span>
         </div>
-        <div style="border-top: 1px solid #E4E4E4; margin-bottom: 24px;"></div>
-        <h2 style="color: #111111; font-size: 22px; margin-top: 0; margin-bottom: 16px; font-weight: 700;">${title}</h2>
-        <p style="color: #5F5F5F; font-size: 15px; line-height: 1.6; margin-bottom: 28px; text-align: left;">
-          Hello <strong style="color: #111111;">${name}</strong>,<br>${description}
+        <div style="border-top: 1px solid #DBEAFE; margin-bottom: 24px;"></div>
+        <h2 style="color: #1E3A8A; font-size: 22px; margin-top: 0; margin-bottom: 16px; font-weight: 700; text-align: center;">
+          ${title}
+        </h2>
+        <p style="color: #475569; font-size: 15px; line-height: 1.6; margin-bottom: 28px; text-align: left;">
+          Hello <strong style="color: #1E3A8A;">${name}</strong>,<br>${description}
         </p>
-        <div style="background-color: #F81927; padding: 16px 40px; border-radius: 8px; display: inline-block; margin-bottom: 28px; box-shadow: 0 4px 12px rgba(248, 25, 39, 0.2);">
-          <span style="font-size: 36px; font-weight: 800; color: #FFFFFF; letter-spacing: 8px; font-family: 'Courier New', monospace;">${otp}</span>
+        <div style="text-align: center; margin-bottom: 28px;">
+          <div style="background-color: #F97316; padding: 16px 40px; border-radius: 8px; display: inline-block; box-shadow: 0 4px 12px rgba(249, 115, 22, 0.2);">
+            <span style="font-size: 36px; font-weight: 800; color: #FFFFFF; letter-spacing: 8px; font-family: 'Courier New', monospace;">${otp}</span>
+          </div>
         </div>
-        <p style="color: #5F5F5F; font-size: 13px; margin-bottom: 24px;">
-          This code will expire in <span style="color: #F81927; font-weight: 600;">${isSignup ? '10' : (isLogin ? '5' : '10')} minutes</span>.
+        <p style="color: #475569; font-size: 13px; margin-bottom: 24px; text-align: center;">
+          This code will expire in <span style="color: #2563EB; font-weight: 600;">${isSignup ? '10' : (isLogin ? '5' : '10')} minutes</span>.
         </p>
-        <div style="border-top: 1px solid #E4E4E4; margin-bottom: 20px;"></div>
-        <p style="color: #8A8A8A; font-size: 11px; margin: 0;">&copy; 2026 TSPL. All internal automation systems apply.</p>
+        <div style="border-top: 1px solid #DBEAFE; margin-bottom: 20px;"></div>
+        <p style="color: #94A3B8; font-size: 11px; margin: 0; text-align: center;">&copy; 2026 TSPL. All internal automation systems apply.</p>
       </div>
     </div>
   `
 
   console.log(`[OTP - ${type.toUpperCase()}] To: ${email} | Code: ${otp}`)
 
-  const resendConfigured = !!process.env.RESEND_API_KEY
-  if (resendConfigured) {
-    const success = await sendMailViaResend(email, subject, html)
-    if (!success) console.log(`⚠️ Resend failed for ${email}`)
+  const smtpConfigured = !!(process.env.SMTP_USER && process.env.SMTP_PASS)
+  if (smtpConfigured) {
+    const success = await sendMailViaSMTP(email, subject, html)
+    if (!success) console.log(`⚠️ SMTP failed for ${email}`)
   }
   return true
 }

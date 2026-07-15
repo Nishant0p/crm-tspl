@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import CandidateView from './components/CandidateView';
 import SuperAdminView from './components/SuperAdminView';
 import SourcingHeadView from './components/SourcingHeadView';
 import RecruiterView from './components/RecruiterView';
 import TpoView from './components/TpoView';
+import { generateCertificateImage } from './utils/certificateGenerator';
 
 // ----- INITIAL DATA (kept for fallback) -----
 const INITIAL_JOBS = [
@@ -346,9 +347,9 @@ const normalizeStrapiJob = (job) => {
   const requirementsList = Array.isArray(job.requirements)
     ? job.requirements
     : String(job.requirements || '')
-        .split('\n')
-        .map(item => item.replace(/^[-•\s]+/, '').trim())
-        .filter(Boolean);
+      .split('\n')
+      .map(item => item.replace(/^[-•\s]+/, '').trim())
+      .filter(Boolean);
 
   return {
     id: job.id,
@@ -395,6 +396,16 @@ export default function App() {
   const [courses, setCourses] = useState(INITIAL_COURSES);
   const [staff, setStaff] = useState(INITIAL_STAFF);
 
+  // NEW: applications state for HR job management
+  const [applications, setApplications] = useState([
+    { id: 'app-1', jobId: 'job-1', candidateId: 'cand-1', status: 'Applied' },
+    { id: 'app-2', jobId: 'job-1', candidateId: 'cand-4', status: 'Shortlisted' },
+    { id: 'app-3', jobId: 'job-2', candidateId: 'cand-2', status: 'Interview Scheduled' },
+    { id: 'app-4', jobId: 'job-3', candidateId: 'cand-3', status: 'Applied' },
+    { id: 'app-5', jobId: 'job-1', candidateId: 'cand-6', status: 'Selected' },
+    { id: 'app-6', jobId: 'job-5', candidateId: 'cand-5', status: 'Applied' },
+  ]);
+
   // Auth states
   const [authMode, setAuthMode] = useState('signin');
   const [authEmail, setAuthEmail] = useState('');
@@ -410,13 +421,31 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [verificationType, setVerificationType] = useState('login');
 
+  // Cascading registration states
+  const [regReferralCode, setRegReferralCode] = useState('');
+  const [regSource, setRegSource] = useState('web');
+  const [regCountryId, setRegCountryId] = useState('');
+  const [regStateId, setRegStateId] = useState('');
+  const [regDistrictId, setRegDistrictId] = useState('');
+  const [regCityId, setRegCityId] = useState('');
+  const [regEducationLevelId, setRegEducationLevelId] = useState('');
+  const [regEducationBranchId, setRegEducationBranchId] = useState('');
+  const [regEducationSpecializationId, setRegEducationSpecializationId] = useState('');
+
+  const [countriesList, setCountriesList] = useState([]);
+  const [statesList, setStatesList] = useState([]);
+  const [districtsList, setDistrictsList] = useState([]);
+  const [citiesList, setCitiesList] = useState([]);
+  const [eduLevelsList, setEduLevelsList] = useState([]);
+  const [eduBranchesList, setEduBranchesList] = useState([]);
+  const [eduSpecializationsList, setEduSpecializationsList] = useState([]);
+
   // Interactive
   const [clerkDropdownOpen, setClerkDropdownOpen] = useState(false);
   const [mobileClock, setMobileClock] = useState('09:41');
   const [applyConfirmation, setApplyConfirmation] = useState(null);
   const [excelPreviewVisible, setExcelPreviewVisible] = useState(false);
-  const [excelFileUploaded, setExcelFileUploaded] = useState(null);
-  
+
   // Recruiter Intake
   const [intakeName, setIntakeName] = useState('');
   const [intakePhone, setIntakePhone] = useState('');
@@ -430,6 +459,9 @@ export default function App() {
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsData, setGpsData] = useState(null);
   const [gpsSuccess, setGpsSuccess] = useState(false);
+  const [gpsImage, setGpsImage] = useState(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraStream, setCameraStream] = useState(null);
 
   // Sourcing head
   const [crmStateFilter, setCrmStateFilter] = useState('');
@@ -494,9 +526,139 @@ export default function App() {
   // ----- Effects -----
   useEffect(() => {
     if (currentUser) {
-      setActiveRole(currentUser.default_role || 'candidate');
+      if (currentUser.default_role === 'candidate') {
+        setActiveRole('candidate');
+      } else {
+        setActiveRole(currentUser.default_role || 'candidate');
+      }
     }
   }, [currentUser]);
+
+  // Cascading registration effects
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref') || params.get('referral');
+    const sourceParam = params.get('source');
+    if (ref) {
+      setRegReferralCode(ref);
+      setRegSource(sourceParam === 'qr' ? 'qr_code' : 'link');
+    }
+  }, []);
+
+  // ---- Signup cascade: direct fetch helpers ----
+  const fetchStates = async (countryId) => {
+    if (!countryId) { setStatesList([]); return; }
+    try {
+      const res = await fetch(`${API_BASE}/api/hierarchy/states?countryId=${countryId}`);
+      const data = await res.json();
+      setStatesList(Array.isArray(data) ? data : []);
+    } catch (e) { console.error('fetchStates', e); }
+  };
+
+  const fetchDistricts = async (stateId) => {
+    if (!stateId) { setDistrictsList([]); return; }
+    try {
+      const res = await fetch(`${API_BASE}/api/hierarchy/districts?stateId=${stateId}`);
+      const data = await res.json();
+      setDistrictsList(Array.isArray(data) ? data : []);
+    } catch (e) { console.error('fetchDistricts', e); }
+  };
+
+  const fetchCities = async (districtId) => {
+    if (!districtId) { setCitiesList([]); return; }
+    try {
+      const res = await fetch(`${API_BASE}/api/hierarchy/cities?districtId=${districtId}`);
+      const data = await res.json();
+      setCitiesList(Array.isArray(data) ? data : []);
+    } catch (e) { console.error('fetchCities', e); }
+  };
+
+  const fetchEduBranches = async (levelId) => {
+    if (!levelId) { setEduBranchesList([]); return; }
+    try {
+      const res = await fetch(`${API_BASE}/api/hierarchy/education-branches?levelId=${levelId}`);
+      const data = await res.json();
+      setEduBranchesList(Array.isArray(data) ? data : []);
+    } catch (e) { console.error('fetchEduBranches', e); }
+  };
+
+  const fetchEduSpecializations = async (branchId) => {
+    if (!branchId) { setEduSpecializationsList([]); return; }
+    try {
+      const res = await fetch(`${API_BASE}/api/hierarchy/education-specializations?branchId=${branchId}`);
+      const data = await res.json();
+      setEduSpecializationsList(Array.isArray(data) ? data : []);
+    } catch (e) { console.error('fetchEduSpecializations', e); }
+  };
+
+  // On signup mode open: load countries, auto-pick India, load its states, load edu levels
+  useEffect(() => {
+    if (authMode !== 'signup') return;
+    // Reset all fields
+    setRegCountryId(''); setRegStateId(''); setRegDistrictId(''); setRegCityId('');
+    setRegEducationLevelId(''); setRegEducationBranchId(''); setRegEducationSpecializationId('');
+    setStatesList([]); setDistrictsList([]); setCitiesList([]);
+    setEduBranchesList([]); setEduSpecializationsList([]);
+
+    const init = async () => {
+      try {
+        // Fetch countries
+        const cRes = await fetch(`${API_BASE}/api/hierarchy/countries`);
+        const countries = await cRes.json();
+        setCountriesList(Array.isArray(countries) ? countries : []);
+
+        // Auto-pick India
+        const india = Array.isArray(countries) && countries.find(c => c.name === 'India' || c.code === 'IN');
+        if (india) {
+          const indiaId = String(india.id);
+          setRegCountryId(indiaId);
+          // Directly fetch states for India
+          await fetchStates(indiaId);
+        }
+
+        // Fetch education levels in parallel
+        const eRes = await fetch(`${API_BASE}/api/hierarchy/education-levels`);
+        const levels = await eRes.json();
+        setEduLevelsList(Array.isArray(levels) ? levels : []);
+      } catch (e) {
+        console.error('Signup init error', e);
+      }
+    };
+    init();
+  }, [authMode]);
+
+  // Cascade: state -> districts
+  useEffect(() => {
+    setDistrictsList([]);
+    setRegDistrictId('');
+    setRegCityId('');
+    setCitiesList([]);
+    if (regStateId) fetchDistricts(regStateId);
+  }, [regStateId]);
+
+  // Cascade: district -> cities
+  useEffect(() => {
+    setCitiesList([]);
+    setRegCityId('');
+    if (regDistrictId) fetchCities(regDistrictId);
+  }, [regDistrictId]);
+
+  // Cascade: edu level -> branches
+  useEffect(() => {
+    setEduBranchesList([]);
+    setRegEducationBranchId('');
+    setEduSpecializationsList([]);
+    setRegEducationSpecializationId('');
+    if (regEducationLevelId) fetchEduBranches(regEducationLevelId);
+  }, [regEducationLevelId]);
+
+  // Cascade: edu branch -> specializations
+  useEffect(() => {
+    setEduSpecializationsList([]);
+    setRegEducationSpecializationId('');
+    if (regEducationBranchId) fetchEduSpecializations(regEducationBranchId);
+  }, [regEducationBranchId]);
+
 
   useEffect(() => {
     const updateTime = () => {
@@ -548,6 +710,88 @@ export default function App() {
     fetchJobsFromStrapi();
   }, []);
 
+  // Real-time polling for recruiter / admin dashboard
+  useEffect(() => {
+    if (!currentUser) return;
+    const isHrOrAdmin = ['super_admin', 'sourcing_head', 'recruiter'].includes(currentUser.default_role);
+    if (!isHrOrAdmin) return;
+
+    const fetchAdminData = async () => {
+      try {
+        // Fetch candidates
+        const candRes = await fetch(`${API_BASE}/api/admin/candidates`, {
+          headers: { 'x-admin-email': currentUser.email }
+        });
+        if (candRes.ok) {
+          const candData = await candRes.json();
+          const mappedCands = (candData.candidates || []).map(c => ({
+            id: c.candidate_id || c.id,
+            name: c.name,
+            email: c.email,
+            phone: c.phone || '',
+            college: c.college_name || c.city_name || 'TSPL Center',
+            state: c.state_name || '',
+            district: c.city_name || '',
+            skills: c.specialization_name ? [c.specialization_name] : [],
+            status: c.status || 'Sourced',
+            sourcingAgent: 'Web Portal',
+            registeredDate: c.created_at ? new Date(c.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+          }));
+          setCandidates(mappedCands);
+        }
+
+        // Fetch applications
+        const appRes = await fetch(`${API_BASE}/api/admin/applications`, {
+          headers: { 'x-admin-email': currentUser.email }
+        });
+        if (appRes.ok) {
+          const appData = await appRes.json();
+          const mappedApps = (appData.applications || []).map(a => ({
+            id: String(a.id),
+            jobId: String(a.job_id),
+            candidateId: String(a.candidate_id),
+            status: a.status,
+            appliedDate: a.applied_date
+          }));
+          setApplications(mappedApps);
+        }
+      } catch (err) {
+        console.error('Error polling admin data:', err);
+      }
+    };
+
+    fetchAdminData();
+    const interval = setInterval(fetchAdminData, 5000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
+  // Real-time polling for candidates to synchronize applied jobs
+  useEffect(() => {
+    if (!currentUser || currentUser.default_role !== 'candidate') return;
+
+    const fetchCandidateApps = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/candidates/applications?email=${encodeURIComponent(currentUser.email)}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (Array.isArray(data)) {
+            const appliedJobIds = data.map(app => String(app.job_id));
+            setJobs(prev => prev.map(j => {
+              const isApplied = appliedJobIds.includes(String(j.id));
+              return j.applied !== isApplied ? { ...j, applied: isApplied } : j;
+            }));
+          }
+        }
+      } catch (err) {
+        console.error('Error polling candidate applications:', err);
+      }
+    };
+
+    fetchCandidateApps();
+    const interval = setInterval(fetchCandidateApps, 5000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
   // ----- Toast -----
   const showToast = (message, type = 'info') => {
     const id = Date.now();
@@ -567,19 +811,26 @@ export default function App() {
       setAuthError('All fields are required.');
       return;
     }
+    if (!regCityId || !regEducationSpecializationId) {
+      setAuthError('Please complete your location and academic specialization details.');
+      return;
+    }
     setLoading(true);
     setAuthError('');
     setAuthSuccess('');
 
     try {
-      const response = await fetch(`${API_BASE}/api/auth/register`, {
+      const response = await fetch(`${API_BASE}/api/candidates/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          name: authName,
           email: authEmail,
           password: authPassword,
-          name: authName,
-          role: authRole
+          referralCode: regReferralCode,
+          source: regSource,
+          cityId: regCityId,
+          educationSpecializationId: regEducationSpecializationId
         })
       });
 
@@ -677,7 +928,11 @@ export default function App() {
         throw new Error(data.error || 'Authentication failed');
       }
 
-      if (data.otp_required) {
+      if (data.user) {
+        localStorage.setItem("tspl_current_user", JSON.stringify(data.user));
+        setCurrentUser(data.user);
+        showToast(`Signed in as ${data.user.name}`, 'success');
+      } else if (data.otp_required) {
         setVerificationType('login');
         setOtpSent(true);
         setOtpTimer(59);
@@ -890,20 +1145,50 @@ export default function App() {
   };
 
   // ----- Job Application (called from apply form) -----
-  const handleJobApply = (jobId) => {
+  const handleJobApply = async (jobId, formData = {}) => {
     const job = jobs.find(j => j.id === jobId);
     if (!job) return;
 
+    // Set local state immediately for fast feedback
     setJobs(prev => prev.map(j => j.id === jobId ? { ...j, applied: true } : j));
 
-    const txId = `TSPL-TX-${Math.floor(100000 + Math.random() * 900000)}`;
-    setApplyConfirmation({
-      jobTitle: job.title,
-      company: job.company,
-      refId: txId,
-      timestamp: new Date().toLocaleString()
-    });
-    showToast(`Application submitted for ${job.title}`, 'success');
+    try {
+      const response = await fetch(`${API_BASE}/api/jobs/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: jobId,
+          email: formData.email || currentUser?.email,
+          phone: formData.phone || '',
+          jobTitle: job.title,
+          jobCompany: job.company,
+          jobLocation: job.location,
+          jobDescription: job.description
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to submit job application.');
+      }
+
+      // Successful API response
+      const txId = `TSPL-TX-${data.application?.id || Math.floor(100000 + Math.random() * 900000)}`;
+      setApplyConfirmation({
+        jobTitle: job.title,
+        company: job.company,
+        refId: txId,
+        timestamp: new Date().toLocaleString()
+      });
+      showToast(`Application submitted for ${job.title}`, 'success');
+      
+      // Immediately switch candidate view to Applications to show the submission in real-time
+      setCandidateSubView('applications');
+    } catch (err) {
+      showToast(err.message, 'warning');
+      // Revert local state if failed
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, applied: false } : j));
+    }
   };
 
   // ----- Apply form handlers -----
@@ -924,72 +1209,21 @@ export default function App() {
       showToast('Please fill in all required fields.', 'warning');
       return;
     }
-    handleJobApply(selectedJobId);
+    handleJobApply(selectedJobId, applyFormData);
     setShowApplyModal(false);
     setApplyFormData({
       name: '', email: '', phone: '', coverLetter: ''
     });
     setSelectedJobId(null);
   };
-
-  // ----- Certificate Download -----
-  const triggerCertificateDownload = (course) => {
+  const triggerCertificateDownload = (course) => {
     showToast(`Compiling verified credential receipt...`, 'info');
     const studentName = currentUser ? currentUser.name : "TSPL Scholar";
+    const courseTitle = course.title || "Specialized Syllabus Course";
+    const issueDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const certificateId = `CERT-CAND-${currentUser?.id || '0'}-${course.id}-${Date.now().toString().slice(-6)}`;
 
-    const svgContent = `
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="100%" height="100%">
-        <defs>
-          <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#0A0F1D"/>
-            <stop offset="100%" stop-color="#0F172A"/>
-          </linearGradient>
-          <linearGradient id="neonGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stop-color="#00F0FF"/>
-            <stop offset="100%" stop-color="#05FF9B"/>
-          </linearGradient>
-        </defs>
-        <rect width="800" height="600" fill="url(#bgGrad)"/>
-        <rect x="25" y="25" width="750" height="550" fill="none" stroke="url(#neonGrad)" stroke-width="3" rx="10"/>
-        <rect x="35" y="35" width="730" height="530" fill="none" stroke="#ffffff" stroke-opacity="0.05" stroke-width="1" rx="8"/>
-        <path d="M 25 60 L 25 25 L 60 25" fill="none" stroke="#00F0FF" stroke-width="6"/>
-        <path d="M 775 60 L 775 25 L 740 25" fill="none" stroke="#00F0FF" stroke-width="6"/>
-        <path d="M 25 540 L 25 575 L 60 575" fill="none" stroke="#05FF9B" stroke-width="6"/>
-        <path d="M 775 540 L 775 575 L 740 575" fill="none" stroke="#05FF9B" stroke-width="6"/>
-        <g transform="translate(400, 100)">
-          <rect x="-20" y="-35" width="40" height="40" fill="url(#neonGrad)" rx="8"/>
-          <text x="0" y="-10" font-family="sans-serif" font-weight="900" font-size="24" fill="#0A0F1D" text-anchor="middle">T</text>
-          <text x="0" y="30" font-family="sans-serif" font-weight="700" font-size="28" fill="#ffffff" letter-spacing="1" text-anchor="middle">TSPL ACADEMY</text>
-          <text x="0" y="50" font-family="sans-serif" font-weight="500" font-size="10" fill="#00F0FF" letter-spacing="2" text-anchor="middle">VERIFIED PLACEMENT CERTIFICATE</text>
-        </g>
-        <text x="400" y="240" font-family="sans-serif" font-size="16" fill="#94A3B8" text-anchor="middle">This verified educational credential is awarded to</text>
-        <text x="400" y="290" font-family="sans-serif" font-weight="700" font-size="36" fill="#05FF9B" text-anchor="middle">${studentName.toUpperCase()}</text>
-        <line x1="250" y1="310" x2="550" y2="310" stroke="#1E293B" stroke-width="2"/>
-        <text x="400" y="350" font-family="sans-serif" font-size="16" fill="#94A3B8" text-anchor="middle">for successfully finishing the specialized syllabus course</text>
-        <text x="400" y="390" font-family="sans-serif" font-weight="600" font-size="22" fill="#ffffff" text-anchor="middle">${course.title}</text>
-        <text x="400" y="430" font-family="sans-serif" font-size="14" fill="#64748B" text-anchor="middle">Under Supervision of Lead Instructor ${course.instructor}</text>
-        <g transform="translate(150, 500)">
-          <line x1="0" y1="0" x2="150" y2="0" stroke="#64748B" stroke-width="1"/>
-          <text x="75" y="20" font-family="sans-serif" font-size="12" fill="#64748B" text-anchor="middle">Academic Registry Head</text>
-          <text x="75" y="-10" font-family="monospace" font-size="13" fill="#00F0FF" text-anchor="middle" font-style="italic">TSPL_REG_SECURE</text>
-        </g>
-        <g transform="translate(500, 500)">
-          <line x1="0" y1="0" x2="150" y2="0" stroke="#64748B" stroke-width="1"/>
-          <text x="75" y="20" font-family="sans-serif" font-size="12" fill="#64748B" text-anchor="middle">Verification Hash</text>
-          <text x="75" y="-10" font-family="monospace" font-size="10" fill="#05FF9B" text-anchor="middle">${course.certificateId}</text>
-        </g>
-      </svg>
-    `;
-
-    const blob = new Blob([svgContent], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `TSPL-CERT-${course.id}.svg`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    generateCertificateImage(studentName, courseTitle, issueDate, certificateId);
     showToast(`Verification credential receipt saved!`, 'success');
   };
 
@@ -997,7 +1231,107 @@ export default function App() {
   const handleGPSCheckin = () => {
     setGpsLoading(true);
     setGpsSuccess(false);
+    setGpsImage(null);
 
+    // Helper to generate a simulated presence badge (drawing a TPO badge with canvas)
+    const generateFallbackImage = (name) => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 400;
+        canvas.height = 300;
+        const ctx = canvas.getContext('2d');
+        
+        // Background gradient
+        const grad = ctx.createLinearGradient(0, 0, 400, 300);
+        grad.addColorStop(0, '#1E3A8A');
+        grad.addColorStop(1, '#F97316');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 400, 300);
+        
+        // Grid pattern overlay
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 400; i += 20) {
+          ctx.beginPath();
+          ctx.moveTo(i, 0);
+          ctx.lineTo(i, 300);
+          ctx.stroke();
+        }
+        for (let j = 0; j < 300; j += 20) {
+          ctx.beginPath();
+          ctx.moveTo(0, j);
+          ctx.lineTo(400, j);
+          ctx.stroke();
+        }
+
+        // Card center badge
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.beginPath();
+        ctx.roundRect(40, 30, 320, 240, 12);
+        ctx.fill();
+
+        // TPO Shield Icon
+        ctx.fillStyle = '#1E3A8A';
+        ctx.beginPath();
+        ctx.moveTo(200, 55);
+        ctx.lineTo(240, 70);
+        ctx.lineTo(230, 115);
+        ctx.quadraticCurveTo(200, 135, 200, 135);
+        ctx.quadraticCurveTo(170, 115, 160, 115);
+        ctx.lineTo(150, 70);
+        ctx.closePath();
+        ctx.fill();
+
+        // Checkmark in shield
+        ctx.fillStyle = '#F97316';
+        ctx.font = '24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('✓', 200, 92);
+
+        // Badge Text
+        ctx.fillStyle = '#0F172A';
+        ctx.font = 'bold 16px Inter, sans-serif';
+        ctx.fillText('TSPL TPO LINKAGE HUB', 200, 165);
+        
+        ctx.fillStyle = '#64748B';
+        ctx.font = 'bold 11px Inter, sans-serif';
+        ctx.fillText('OFFICIAL GPS TELEMETRY PRESENCE', 200, 185);
+
+        ctx.fillStyle = '#1E3A8A';
+        ctx.font = 'bold 13px Inter, sans-serif';
+        ctx.fillText(name || 'Placement Officer', 200, 215);
+
+        ctx.fillStyle = '#C2410C';
+        ctx.font = '10px monospace';
+        ctx.fillText(`TIMESTAMP: ${new Date().toLocaleTimeString()}`, 200, 240);
+
+        return canvas.toDataURL('image/jpeg');
+      } catch (err) {
+        console.error('Error generating fallback image:', err);
+        return null;
+      }
+    };
+
+    const startCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 400, height: 300, facingMode: 'user' }
+        });
+        setCameraStream(stream);
+        setCameraActive(true);
+        setGpsLoading(false);
+      } catch (camErr) {
+        console.warn('Camera access error/denied. Using simulated badge image fallback.', camErr);
+        const fallbackImg = generateFallbackImage(currentUser ? currentUser.name : 'Placement Officer');
+        setGpsImage(fallbackImg);
+        setGpsLoading(false);
+        setGpsSuccess(true);
+        showToast("GPS logged. Camera fallback presence badge generated.", "info");
+      }
+    };
+
+    // 1. Get Geolocation
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -1005,31 +1339,30 @@ export default function App() {
           const lng = position.coords.longitude;
           const accuracy = position.coords.accuracy.toFixed(1);
 
-          setGpsData({
+          const gpsDetails = {
             lat,
             lng,
             accuracy: `Acc: ±${accuracy}m`,
             timestamp: new Date().toLocaleTimeString()
-          });
-          setGpsLoading(false);
-          setGpsSuccess(true);
-          showToast("Live GPS lock synchronized to TPO", "success");
+          };
+          setGpsData(gpsDetails);
+          // Geolocation success -> start camera
+          startCamera();
         },
         (error) => {
           showToast("GPS Denied. Simulating local ground coordinates.", "warning");
           const lat = 25.5941 + (Math.random() - 0.5) * 0.05;
           const lng = 85.1376 + (Math.random() - 0.5) * 0.05;
 
-          setTimeout(() => {
-            setGpsData({
-              lat,
-              lng,
-              accuracy: "Simulated Location",
-              timestamp: new Date().toLocaleTimeString()
-            });
-            setGpsLoading(false);
-            setGpsSuccess(true);
-          }, 1000);
+          const gpsDetails = {
+            lat,
+            lng,
+            accuracy: "Simulated Location",
+            timestamp: new Date().toLocaleTimeString()
+          };
+          setGpsData(gpsDetails);
+          // Fallback GPS -> start camera
+          startCamera();
         },
         { enableHighAccuracy: true, timeout: 5000 }
       );
@@ -1037,15 +1370,50 @@ export default function App() {
       showToast("Browser GPS API unsupported. Generating coords.", "warning");
       const lat = 23.3441;
       const lng = 85.3096;
-      setGpsData({
+      const gpsDetails = {
         lat,
         lng,
         accuracy: "Simulated API Fallback",
         timestamp: new Date().toLocaleTimeString()
-      });
-      setGpsLoading(false);
-      setGpsSuccess(true);
+      };
+      setGpsData(gpsDetails);
+      // Fallback GPS -> start camera
+      startCamera();
     }
+  };
+
+  const handleCaptureGPSSnapshot = (videoElement) => {
+    if (!videoElement || !cameraStream) return;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoElement.videoWidth || 400;
+      canvas.height = videoElement.videoHeight || 300;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg');
+      
+      // Stop all tracks to turn off camera
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+      setCameraActive(false);
+      setGpsImage(dataUrl);
+      setGpsSuccess(true);
+      showToast("Live GPS lock & photo check-in verified", "success");
+    } catch (err) {
+      console.error('Error capturing snapshot:', err);
+      showToast('Failed to capture photo snapshot', 'error');
+    }
+  };
+
+  const handleClearGPS = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setCameraActive(false);
+    setGpsSuccess(false);
+    setGpsData(null);
+    setGpsImage(null);
   };
 
   // ----- Recruiter Intake -----
@@ -1078,7 +1446,7 @@ export default function App() {
     } : a));
 
     showToast(`Lead for ${intakeName} synchronised.`, "success");
-    
+
     setIntakeName('');
     setIntakePhone('');
     setIntakeState('');
@@ -1131,7 +1499,6 @@ export default function App() {
 
     showToast("Linked 4 external candidate rows to CRM database", "success");
     setExcelPreviewVisible(false);
-    setExcelFileUploaded(null);
   };
 
   // ----- District Checkbox -----
@@ -1316,7 +1683,7 @@ export default function App() {
       ...col,
       placedCandidates: col.placedCandidates + 1,
       placementRate: parseFloat(((col.placedCandidates + 1) / col.totalCandidates * 100).toFixed(1))
-    }: col));
+    } : col));
 
     showToast(`Linked ${cand.name} to ${job.title}`, "success");
   };
@@ -1332,11 +1699,58 @@ export default function App() {
     setLinkingJobId('');
   };
 
+  // ----- HR Job Management Functions -----
+  const updateApplicationStatus = async (appId, newStatus) => {
+    try {
+      // Call backend API
+      const res = await fetch(`${API_BASE}/api/applications/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ applicationId: appId, newStatus })
+      });
+      let data;
+      try {
+        data = await res.json();
+      } catch (e) {
+        // If response is not JSON (e.g., PDF download?), fallback to mock
+        console.warn('API response not JSON, using mock update');
+        data = { status: newStatus, offerLetterCode: newStatus === 'Selected' ? 'OL-MOCK-123' : undefined };
+      }
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to update status');
+      }
+      // Update local state
+      setApplications(prev => prev.map(app =>
+        app.id === appId ? { ...app, status: data.status || newStatus } : app
+      ));
+      showToast(`Status updated to ${data.status || newStatus}`, 'success');
+      if (data.offerLetterCode) {
+        showToast(`Offer letter ${data.offerLetterCode} generated!`, 'success');
+      }
+    } catch (err) {
+      // Fallback: update locally anyway for demo
+      setApplications(prev => prev.map(app =>
+        app.id === appId ? { ...app, status: newStatus } : app
+      ));
+      showToast(`Status updated to ${newStatus} (demo)`, 'success');
+      if (newStatus === 'Selected') {
+        showToast('Offer letter generated (demo)', 'success');
+      }
+    }
+  };
+
+  const generateOffer = (appId) => {
+    const url = `${API_BASE}/api/candidates/offer-pdf?applicationId=${appId}`;
+    // Open in new tab for PDF download
+    window.open(url, '_blank');
+    showToast('Downloading offer letter...', 'info');
+  };
+
   // ----- OTP helpers -----
   const handleOtpKey = (e, index) => {
     const val = e.target.value;
     if (val && !/^\d+$/.test(val)) return;
-    
+
     const nextDigits = [...otpDigits];
     nextDigits[index] = val.slice(-1);
     setOtpDigits(nextDigits);
@@ -1382,27 +1796,6 @@ export default function App() {
     }
   };
 
-  // ----- CRM Filter -----
-  const getFilteredCandidates = () => {
-    return candidates.filter(c => {
-      const matchesState = !crmStateFilter || c.state === crmStateFilter;
-      const matchesDistrict = selectedDistricts.size === 0 || selectedDistricts.has(c.district);
-      return matchesState && matchesDistrict;
-    }).sort((a, b) => {
-      if (crmSorting === 'newest') {
-        return new Date(b.registeredDate) - new Date(a.registeredDate);
-      }
-      if (crmSorting === 'name_asc') {
-        return a.name.localeCompare(b.name);
-      }
-      if (crmSorting === 'status') {
-        const weight = { "Placed": 3, "Interviewing": 2, "Sourced": 1 };
-        return (weight[b.status] || 0) - (weight[a.status] || 0);
-      }
-      return 0;
-    });
-  };
-
   // ----- Gated Login View (no debug banner, OTP hidden) -----
   if (!currentUser) {
     return (
@@ -1410,7 +1803,7 @@ export default function App() {
         <div style={{ position: 'absolute', top: '-15%', right: '-10%', width: '500px', height: '500px', background: 'radial-gradient(circle, rgba(248,25,39,0.06) 0%, transparent 70%)', pointerEvents: 'none', borderRadius: '50%' }}></div>
         <div style={{ position: 'absolute', bottom: '-15%', left: '-10%', width: '500px', height: '500px', background: 'radial-gradient(circle, rgba(37,99,235,0.05) 0%, transparent 70%)', pointerEvents: 'none', borderRadius: '50%' }}></div>
 
-        <div className="glass-panel" style={{ width: '100%', maxWidth: '440px', padding: '36px', display: 'flex', flexDirection: 'column', gap: '24px', border: '1px solid #E2E8F0', boxShadow: '0 20px 60px rgba(0,0,0,0.08)', zIndex: 5, background: '#FFFFFF' }}>
+        <div className="glass-panel" style={{ width: '100%', maxWidth: authMode === 'signup' ? '580px' : '440px', padding: '36px', display: 'flex', flexDirection: 'column', gap: '24px', border: '1px solid #E2E8F0', boxShadow: '0 20px 60px rgba(0,0,0,0.08)', zIndex: 5, background: '#FFFFFF', transition: 'max-width 0.3s ease' }}>
           <div style={{ textAlign: 'center' }}>
             <img src={APP_LOGO_URL} alt="TSPL Logo" style={{ width: '160px', height: 'auto', marginBottom: '16px', borderRadius: '8px', display: 'inline-block' }} />
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '24px', fontWeight: '800', color: '#1E293B' }}>TSPL Group</h2>
@@ -1459,18 +1852,102 @@ export default function App() {
 
               {authMode === 'signup' && (
                 <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div className="form-group">
-                    <label>Full Representative Name</label>
-                    <input type="text" className="form-input" placeholder="Amit Kumar" value={authName} onChange={e => setAuthName(e.target.value)} required />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="form-group">
+                      <label>Full Name</label>
+                      <input type="text" className="form-input" placeholder="Amit Kumar" value={authName} onChange={e => setAuthName(e.target.value)} required />
+                    </div>
+                    <div className="form-group">
+                      <label>Email Address</label>
+                      <input type="email" className="form-input" placeholder="amit@tspl.org" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>Operational Email Address</label>
-                    <input type="email" className="form-input" placeholder="amit@tspl.org" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required />
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="form-group">
+                      <label>Set Secure Password</label>
+                      <input type="password" className="form-input" placeholder="Min 6 characters" value={authPassword} onChange={e => setAuthPassword(e.target.value)} required />
+                    </div>
+                    <div className="form-group">
+                      <label>Referral Code (Optional)</label>
+                      <input type="text" className="form-input" placeholder="REF-CODE" value={regReferralCode} onChange={e => setRegReferralCode(e.target.value.toUpperCase())} />
+                      {regSource !== 'web' && (
+                        <div style={{ fontSize: '10px', color: '#F97316', fontWeight: 'bold', marginTop: '4px' }}>
+                          Source: {regSource === 'qr_code' ? 'Scanned QR Code 📱' : 'Referral Link 🔗'}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>Set Secure Password</label>
-                    <input type="password" className="form-input" placeholder="Min 6 characters" value={authPassword} onChange={e => setAuthPassword(e.target.value)} required />
+
+                  <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: '12px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Location Hierarchy</span>
                   </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="form-group">
+                      <label>Country</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value="India 🇮🇳"
+                        readOnly
+                        style={{ background: '#F1F5F9', cursor: 'not-allowed', color: '#1E293B', fontWeight: '600' }}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>State *</label>
+                      <select className="form-input" value={regStateId} onChange={e => setRegStateId(e.target.value)} required disabled={statesList.length === 0}>
+                        <option value="">{statesList.length === 0 ? 'Loading states...' : 'Select State'}</option>
+                        {statesList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="form-group">
+                      <label>District *</label>
+                      <select className="form-input" value={regDistrictId} onChange={e => setRegDistrictId(e.target.value)} required disabled={!regStateId || districtsList.length === 0}>
+                        <option value="">{!regStateId ? 'Select state first' : districtsList.length === 0 ? 'Loading...' : 'Select District'}</option>
+                        {districtsList.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>City *</label>
+                      <select className="form-input" value={regCityId} onChange={e => setRegCityId(e.target.value)} required disabled={!regDistrictId || citiesList.length === 0}>
+                        <option value="">{!regDistrictId ? 'Select district first' : citiesList.length === 0 ? 'Loading...' : 'Select City'}</option>
+                        {citiesList.map(ci => <option key={ci.id} value={ci.id}>{ci.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: '12px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Education Specialization</span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                    <div className="form-group">
+                      <label>Education Level *</label>
+                      <select className="form-input" value={regEducationLevelId} onChange={e => setRegEducationLevelId(e.target.value)} required style={{ fontSize: '12px' }} disabled={eduLevelsList.length === 0}>
+                        <option value="">{eduLevelsList.length === 0 ? 'Loading...' : 'Select Level'}</option>
+                        {eduLevelsList.map(el => <option key={el.id} value={el.id}>{el.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Branch *</label>
+                      <select className="form-input" value={regEducationBranchId} onChange={e => setRegEducationBranchId(e.target.value)} required disabled={!regEducationLevelId || eduBranchesList.length === 0} style={{ fontSize: '12px' }}>
+                        <option value="">{!regEducationLevelId ? 'Select level first' : eduBranchesList.length === 0 ? 'Loading...' : 'Select Branch'}</option>
+                        {eduBranchesList.map(eb => <option key={eb.id} value={eb.id}>{eb.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Specialization *</label>
+                      <select className="form-input" value={regEducationSpecializationId} onChange={e => setRegEducationSpecializationId(e.target.value)} required disabled={!regEducationBranchId || eduSpecializationsList.length === 0} style={{ fontSize: '12px' }}>
+                        <option value="">{!regEducationBranchId ? 'Select branch first' : eduSpecializationsList.length === 0 ? 'Loading...' : 'Select Specialization'}</option>
+                        {eduSpecializationsList.map(es => <option key={es.id} value={es.id}>{es.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
                   <button type="submit" className="btn-primary" style={{ width: '100%', padding: '12px', marginTop: '8px' }} disabled={loading}>
                     {loading ? 'Creating Credentials...' : 'Create Verified Account'}
                   </button>
@@ -1553,28 +2030,33 @@ export default function App() {
           <nav className="navbar-links">
             <button className={`navbar-link ${candidateSubView === 'home' ? 'active' : ''}`} onClick={() => setCandidateSubView('home')}>Home</button>
             <button className={`navbar-link ${candidateSubView === 'jobs' ? 'active' : ''}`} onClick={() => setCandidateSubView('jobs')}>Job Openings</button>
+            <button className={`navbar-link ${candidateSubView === 'applications' ? 'active' : ''}`} onClick={() => setCandidateSubView('applications')}>My Applications</button>
             <button className={`navbar-link ${candidateSubView === 'training' ? 'active' : ''}`} onClick={() => setCandidateSubView('training')}>Training & Skill Registry</button>
+            <button className={`navbar-link ${candidateSubView === 'profile' ? 'active' : ''}`} onClick={() => setCandidateSubView('profile')}>My Profile</button>
+            <button className={`navbar-link ${candidateSubView === 'support' ? 'active' : ''}`} onClick={() => setCandidateSubView('support')}>Support Chat</button>
           </nav>
         )}
 
         <div className="header-controls">
-          <div className="role-simulator">
-            <label>Role</label>
-            <select className="role-select" value={activeRole} onChange={e => { setActiveRole(e.target.value); showToast(`Switched view context simulation.`, 'success'); }}>
-              <option value="candidate">Candidate</option>
-              <option value="super_admin">Super Admin</option>
-              <option value="sourcing_head">Sourcing Head</option>
-              <option value="recruiter">HR Recruiter</option>
-              <option value="tpo">TPO Panel</option>
-            </select>
-          </div>
+          {currentUser?.default_role !== 'candidate' && (
+            <div className="role-simulator">
+              <label>Role</label>
+              <select className="role-select" value={activeRole} onChange={e => { setActiveRole(e.target.value); showToast(`Switched view context simulation.`, 'success'); }}>
+                <option value="candidate">Candidate</option>
+                <option value="super_admin">Super Admin</option>
+                <option value="sourcing_head">Sourcing Head</option>
+                <option value="recruiter">HR Recruiter</option>
+                <option value="tpo">TPO Panel</option>
+              </select>
+            </div>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative' }}>
             <div className="clerk-user-meta">
               <div className="name">{currentUser.name}</div>
               <div className="email">{currentUser.email}</div>
             </div>
             <div className="clerk-profile-button" onClick={() => setClerkDropdownOpen(!clerkDropdownOpen)}>
-              <span className="clerk-profile-avatar">{currentUser.name.split(' ').map(n=>n[0]).join('')}</span>
+              <span className="clerk-profile-avatar">{currentUser.name.split(' ').map(n => n[0]).join('')}</span>
             </div>
             {clerkDropdownOpen && (
               <div className="glass-panel" style={{ position: 'absolute', top: '46px', right: 0, width: '220px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 120, border: '1px solid var(--glass-border)' }}>
@@ -1591,28 +2073,10 @@ export default function App() {
 
       {activeRole === 'candidate' && (
         <div className={`candidate-mobile-menu ${sidebarOpen ? 'open' : ''}`}>
-          <div className="role-switcher-mobile" style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 10, textTransform: 'uppercase', fontWeight: 600, color: 'var(--text-muted)' }}>Switch Role</label>
-            <select className="role-select" value={activeRole} onChange={e => { setActiveRole(e.target.value); showToast(`Switched view context simulation.`, 'success'); setSidebarOpen(false); }} style={{ width: '100%', padding: 10, background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: 8, color: 'var(--text-main)', fontSize: 14 }}>
-              <option value="candidate">Candidate</option>
-              <option value="super_admin">Super Admin</option>
-              <option value="sourcing_head">Sourcing Head</option>
-              <option value="recruiter">HR Recruiter</option>
-              <option value="tpo">TPO Panel</option>
-            </select>
-          </div>
-          <button className={`navbar-link ${candidateSubView === 'home' ? 'active' : ''}`} onClick={() => { setCandidateSubView('home'); setSidebarOpen(false); }}>Home</button>
-          <button className={`navbar-link ${candidateSubView === 'jobs' ? 'active' : ''}`} onClick={() => { setCandidateSubView('jobs'); setSidebarOpen(false); }}>Job Openings</button>
-          <button className={`navbar-link ${candidateSubView === 'training' ? 'active' : ''}`} onClick={() => { setCandidateSubView('training'); setSidebarOpen(false); }}>Training & Skill Registry</button>
-        </div>
-      )}
-
-      {activeRole !== 'candidate' && (
-        <aside className={`app-sidebar ${sidebarOpen ? 'open' : ''}`}>
-          <div className="sidebar-nav">
-            <div className="role-switcher-mobile" style={{ padding: '12px 16px', marginBottom: 8 }}>
+          {currentUser?.default_role !== 'candidate' && (
+            <div className="role-switcher-mobile" style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 10, textTransform: 'uppercase', fontWeight: 600, color: 'var(--text-muted)' }}>Switch Role</label>
-              <select className="role-select" value={activeRole} onChange={e => { setActiveRole(e.target.value); showToast(`Switched view context simulation.`, 'success'); setSidebarOpen(false); }} style={{ width: '100%', padding: 8, background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: 6, color: 'var(--text-main)', fontSize: 13 }}>
+              <select className="role-select" value={activeRole} onChange={e => { setActiveRole(e.target.value); showToast(`Switched view context simulation.`, 'success'); setSidebarOpen(false); }} style={{ width: '100%', padding: 10, background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: 8, color: 'var(--text-main)', fontSize: 14 }}>
                 <option value="candidate">Candidate</option>
                 <option value="super_admin">Super Admin</option>
                 <option value="sourcing_head">Sourcing Head</option>
@@ -1620,6 +2084,31 @@ export default function App() {
                 <option value="tpo">TPO Panel</option>
               </select>
             </div>
+          )}
+          <button className={`navbar-link ${candidateSubView === 'home' ? 'active' : ''}`} onClick={() => { setCandidateSubView('home'); setSidebarOpen(false); }}>Home</button>
+          <button className={`navbar-link ${candidateSubView === 'jobs' ? 'active' : ''}`} onClick={() => { setCandidateSubView('jobs'); setSidebarOpen(false); }}>Job Openings</button>
+          <button className={`navbar-link ${candidateSubView === 'applications' ? 'active' : ''}`} onClick={() => { setCandidateSubView('applications'); setSidebarOpen(false); }}>My Applications</button>
+          <button className={`navbar-link ${candidateSubView === 'training' ? 'active' : ''}`} onClick={() => { setCandidateSubView('training'); setSidebarOpen(false); }}>Training & Skill Registry</button>
+          <button className={`navbar-link ${candidateSubView === 'profile' ? 'active' : ''}`} onClick={() => { setCandidateSubView('profile'); setSidebarOpen(false); }}>My Profile</button>
+          <button className={`navbar-link ${candidateSubView === 'support' ? 'active' : ''}`} onClick={() => { setCandidateSubView('support'); setSidebarOpen(false); }}>Support Chat</button>
+        </div>
+      )}
+
+      {activeRole !== 'candidate' && (
+        <aside className={`app-sidebar ${sidebarOpen ? 'open' : ''}`}>
+          <div className="sidebar-nav">
+            {currentUser?.default_role !== 'candidate' && (
+              <div className="role-switcher-mobile" style={{ padding: '12px 16px', marginBottom: 8 }}>
+                <label style={{ fontSize: 10, textTransform: 'uppercase', fontWeight: 600, color: 'var(--text-muted)' }}>Switch Role</label>
+                <select className="role-select" value={activeRole} onChange={e => { setActiveRole(e.target.value); showToast(`Switched view context simulation.`, 'success'); setSidebarOpen(false); }} style={{ width: '100%', padding: 8, background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: 6, color: 'var(--text-main)', fontSize: 13 }}>
+                  <option value="candidate">Candidate</option>
+                  <option value="super_admin">Super Admin</option>
+                  <option value="sourcing_head">Sourcing Head</option>
+                  <option value="recruiter">HR Recruiter</option>
+                  <option value="tpo">TPO Panel</option>
+                </select>
+              </div>
+            )}
 
             {activeRole === 'super_admin' && (
               <>
@@ -1637,7 +2126,7 @@ export default function App() {
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 10v6M2 10l10-5 10 5-10 5z"></path><path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"></path></svg> Configure Courses
                 </button>
                 <button className={`sidebar-link ${adminActiveTab === 'tab-admin-roles' ? 'active' : ''}`} onClick={() => { setAdminActiveTab('tab-admin-roles'); setSidebarOpen(false); }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4h8z"/></svg> DB Roles
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4h8z" /></svg> DB Roles
                 </button>
               </>
             )}
@@ -1658,7 +2147,10 @@ export default function App() {
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line></svg> Candidate Intake
                 </button>
                 <button className={`sidebar-link ${mobileActiveSubview === 'mobile-sub-sync' ? 'active' : ''}`} onClick={() => { setMobileActiveSubview('mobile-sub-sync'); setSidebarOpen(false); }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Excel Offline Sync
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" /></svg> Excel Offline Sync
+                </button>
+                <button className={`sidebar-link ${mobileActiveSubview === 'hr-jobs' ? 'active' : ''}`} onClick={() => { setMobileActiveSubview('hr-jobs'); setSidebarOpen(false); }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg> Job Management
                 </button>
               </>
             )}
@@ -1683,9 +2175,9 @@ export default function App() {
                 <span className="role-pulse"></span>
                 <span>
                   {activeRole === 'super_admin' ? 'Super Admin' :
-                   activeRole === 'sourcing_head' ? 'Sourcing Head' :
-                   activeRole === 'recruiter' ? 'HR Recruiter' :
-                   activeRole === 'tpo' ? 'TPO College Panel' : 'Candidate'}
+                    activeRole === 'sourcing_head' ? 'Sourcing Head' :
+                      activeRole === 'recruiter' ? 'HR Recruiter' :
+                        activeRole === 'tpo' ? 'TPO College Panel' : 'Candidate'}
                 </span>
               </div>
             </div>
@@ -1702,7 +2194,6 @@ export default function App() {
             jobsLoading={jobsLoading}
             jobsError={jobsError}
             courses={courses}
-            currentUser={currentUser}
             selectedJobCategory={selectedJobCategory}
             setSelectedJobCategory={setSelectedJobCategory}
             handleJobApply={handleJobApply}
@@ -1713,6 +2204,9 @@ export default function App() {
             setApplyFormData={setApplyFormData}
             handleApplySubmit={handleApplySubmit}
             handleApplyClick={handleApplyClick}
+            currentUser={currentUser}
+            API_BASE={API_BASE}
+            showToast={showToast}
           />
         )}
         {activeRole === 'super_admin' && (
@@ -1752,14 +2246,12 @@ export default function App() {
         {activeRole === 'sourcing_head' && (
           <SourcingHeadView
             fieldAgents={fieldAgents} selectedAgentId={selectedAgentId} setSelectedAgentId={setSelectedAgentId}
-            candidates={candidates} colleges={colleges} staff={staff}
+            candidates={candidates}
             crmStateFilter={crmStateFilter} setCrmStateFilter={setCrmStateFilter}
             selectedDistricts={selectedDistricts} districtDropdownOpen={districtDropdownOpen} setDistrictDropdownOpen={setDistrictDropdownOpen}
             handleDistrictCheckbox={handleDistrictCheckbox}
             crmSorting={crmSorting} setCrmSorting={setCrmSorting}
-            getFilteredCandidates={getFilteredCandidates}
             DISTRICT_MAPPING={DISTRICT_MAPPING}
-            currentUser={currentUser} showToast={showToast}
             showAddCandidateModal={showAddCandidateModal}
             setShowAddCandidateModal={setShowAddCandidateModal}
             newCandidateData={newCandidateData}
@@ -1769,7 +2261,6 @@ export default function App() {
         )}
         {activeRole === 'recruiter' && (
           <RecruiterView
-            appLogoUrl={APP_LOGO_URL}
             mobileClock={mobileClock}
             mobileActiveSubview={mobileActiveSubview}
             setMobileActiveSubview={setMobileActiveSubview}
@@ -1787,7 +2278,12 @@ export default function App() {
             executeExcelSync={executeExcelSync}
             triggerExcelUpload={triggerExcelUpload}
             DISTRICT_MAPPING={DISTRICT_MAPPING}
-            currentUser={currentUser} showToast={showToast}
+            jobs={jobs}
+            candidates={candidates}
+            applications={applications}
+            updateApplicationStatus={updateApplicationStatus}
+            generateOffer={generateOffer}
+            showToast={showToast}
           />
         )}
         {activeRole === 'tpo' && (
@@ -1810,6 +2306,11 @@ export default function App() {
             gpsData={gpsData}
             gpsLoading={gpsLoading}
             handleGPSCheckin={handleGPSCheckin}
+            gpsImage={gpsImage}
+            cameraActive={cameraActive}
+            cameraStream={cameraStream}
+            handleCaptureGPSSnapshot={handleCaptureGPSSnapshot}
+            handleClearGPS={handleClearGPS}
           />
         )}
       </main>

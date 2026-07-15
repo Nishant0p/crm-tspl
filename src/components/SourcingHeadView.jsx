@@ -51,6 +51,85 @@ const LiveTelemetryMap = memo(({ fieldAgents, setSelectedAgentId }) => {
   );
 });
 
+class MapErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("Leaflet Map Error caught:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          height: '100%',
+          width: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'rgba(29,78,216,0.05)',
+          color: 'var(--text-main)',
+          padding: '20px',
+          textAlign: 'center',
+          fontSize: '13px',
+          gap: '8px'
+        }}>
+          <div style={{ fontSize: '24px' }}>🗺️</div>
+          <div style={{ fontWeight: 'bold' }}>Map telemetry offline</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
+            Interactive Leaflet map could not initialize. Showing active agent nodes below.
+          </div>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
+            alignItems: 'flex-start',
+            width: '100%',
+            overflowY: 'auto',
+            maxHeight: '180px',
+            padding: '8px',
+            background: 'var(--bg-secondary)',
+            borderRadius: '4px',
+            border: '1px solid var(--glass-border)',
+            boxSizing: 'border-box'
+          }}>
+            {this.props.fieldAgents?.map(a => (
+              <div 
+                key={a.id} 
+                onClick={() => this.props.setSelectedAgentId(a.id)}
+                style={{ 
+                  cursor: 'pointer',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                  fontSize: '11px',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  background: 'rgba(255,255,255,0.05)',
+                  boxSizing: 'border-box'
+                }}
+              >
+                <span>📍 {a.name} ({a.region})</span>
+                <span style={{ color: a.status === 'Active' ? '#22c55e' : '#94a3b8', fontWeight: 'bold' }}>{a.status}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export default function SourcingHeadView({
   selectedAgentId,
   setSelectedAgentId,
@@ -96,7 +175,7 @@ export default function SourcingHeadView({
 
   // Selected agent details caching
   const currentAgent = useMemo(() => {
-    return fieldAgents.find(a => a.id === selectedAgentId);
+    return fieldAgents.find(a => String(a.id) === String(selectedAgentId));
   }, [fieldAgents, selectedAgentId]);
 
   const handleFormChange = (e) => {
@@ -144,7 +223,9 @@ export default function SourcingHeadView({
         <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <h3 style={{ fontSize: '15px', color: 'var(--text-main)', fontWeight: 'bold' }}>Ground Operations Tracking (Live GPS Hub)</h3>
           <div id="real-map-container" style={{ flexGrow: 1, height: '320px', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--glass-border)' }}>
-            <LiveTelemetryMap fieldAgents={fieldAgents} setSelectedAgentId={setSelectedAgentId} />
+            <MapErrorBoundary fieldAgents={fieldAgents} setSelectedAgentId={setSelectedAgentId}>
+              <LiveTelemetryMap fieldAgents={fieldAgents} setSelectedAgentId={setSelectedAgentId} />
+            </MapErrorBoundary>
           </div>
         </div>
 
@@ -168,9 +249,12 @@ export default function SourcingHeadView({
                   <span style={{ color: 'var(--text-dark)' }}>Agent Contact:</span>
                   <span style={{ color: 'var(--text-main)', fontWeight: '500' }}>{currentAgent.phone}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--text-dark)' }}>Ground Coordinates:</span>
-                  <span style={{ fontFamily: 'monospace', color: 'var(--primary-blue)' }}>{currentAgent.coords.lat.toFixed(5)}° N, {currentAgent.coords.lng.toFixed(5)}° E</span>
+                  <span style={{ fontFamily: 'monospace', color: 'var(--primary-blue)' }}>
+                    {typeof currentAgent.coords?.lat === 'number' ? currentAgent.coords.lat.toFixed(5) : '0.00000'}° N,{' '}
+                    {typeof currentAgent.coords?.lng === 'number' ? currentAgent.coords.lng.toFixed(5) : '0.00000'}° E
+                  </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--text-dark)' }}>Sourced Register:</span>
@@ -252,11 +336,18 @@ export default function SourcingHeadView({
             <tbody>
               {filteredCandidates.map(c => (
                 <tr key={c.id}>
-                  <td style={{ fontFamily: 'monospace', color: 'var(--text-dark)', fontSize: '11px' }}>{c.id.substring(0, 8)}</td>
+                  <td style={{ fontFamily: 'monospace', color: 'var(--text-dark)', fontSize: '11px' }}>{String(c.id).substring(0, 8)}</td>
                   <td>
                     <div style={{ fontWeight: 'bold', color: 'var(--text-main)' }}>{c.name}</div>
-                    <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
-                      {c.skills.map((s, i) => <span key={i} className="job-tag" style={{ fontSize: '9px', padding: '1px 4px' }}>{s}</span>)}
+                    <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
+                      {(Array.isArray(c.skills) 
+                        ? c.skills 
+                        : typeof c.skills === 'string' 
+                          ? c.skills.split(',').map(s => s.trim()).filter(Boolean) 
+                          : []
+                      ).map((s, i) => (
+                        <span key={i} className="job-tag" style={{ fontSize: '9px', padding: '1px 4px' }}>{s}</span>
+                      ))}
                     </div>
                   </td>
                   <td>
